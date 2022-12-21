@@ -23,6 +23,9 @@
 /* USER CODE BEGIN Includes */
 
 #include <stdio.h>
+#include "spi_w5500_communication.h"
+#include "serial_communication.h"
+#include "consts.h"
 
 /* USER CODE END Includes */
 
@@ -49,7 +52,7 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 
-uint8_t Received[10];
+uint8_t Received[5];
 
 /* USER CODE END PV */
 
@@ -68,17 +71,41 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
+void mapInto(struct Opcode *ReceivedOpCode) {
+  ReceivedOpCode->B0 = Received[0];
+  ReceivedOpCode->B1 = Received[1];
+  ReceivedOpCode->B2 = Received[2];
+  ReceivedOpCode->B3 = Received[3];
+}
+
+uint8_t checkEqOpCodes(struct Opcode *ReceivedOpCode, const struct Opcode *InstrOpCode) {
+  if (ReceivedOpCode->B0 == InstrOpCode->B0 && ReceivedOpCode->B1 == InstrOpCode->B1 && 
+      ReceivedOpCode->B2 == InstrOpCode->B2 && ReceivedOpCode->B3 == InstrOpCode->B3) {
+        return 1;
+  }
+  return 0;
+}
+
+void handleInstr(struct Opcode *ReceivedOpCode) {
+  if (checkEqOpCodes(ReceivedOpCode, &GetAdress) == 1) {
+    static uint8_t Data[70];
+    uint16_t size = sprintf(Data, "Adres: %s\n\r", VERSION_ADRESS);
+    HAL_UART_Transmit_IT(&huart2, Data, size);
+  }
+}
+
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
  
-	static uint8_t Data[40]; // Tablica przechowujaca wysylana wiadomosc.
+	static uint8_t Data[70];
 
-  if (Received[0] == 'a') {
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-  }
- 
-	sprintf(Data, "Odebrana wiadomosc: %s\n\r", Received);
-	HAL_UART_Transmit_DMA(&huart2, Data, 40); // Rozpoczecie nadawania danych z wykorzystaniem przerwan
-	HAL_UART_Receive_DMA(&huart2, Received, 10); // Ponowne włączenie nasłuchiwania
+	//uint16_t size = sprintf(Data, "----Odebrana wiadomosc: %s\n\r", Received);
+	//HAL_UART_Transmit_IT(&huart2, Data, size);
+
+  struct Opcode ReceivedOpCode;
+  mapInto(&ReceivedOpCode);
+  handleInstr(&ReceivedOpCode);
+
+	HAL_UART_Receive_DMA(&huart2, Received, 4);
 	
 }
 
@@ -125,7 +152,7 @@ int main(void)
   uint8_t buffR[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
   // init of listening using dma
-  HAL_UART_Receive_DMA(&huart2, Received, 10);
+  HAL_UART_Receive_DMA(&huart2, Received, 4);
 
   /* USER CODE END 2 */
 
@@ -139,7 +166,7 @@ int main(void)
     HAL_SPI_Transmit(&hspi2, buffW, 5, HAL_MAX_DELAY);
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
 
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
     HAL_Delay(2000);
 
@@ -148,7 +175,7 @@ int main(void)
     HAL_SPI_Receive(&hspi2, buffR, 8, HAL_MAX_DELAY);
     HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
 
-    HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+    //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
     HAL_Delay(2000);
     /* USER CODE END WHILE */
