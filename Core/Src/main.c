@@ -52,7 +52,7 @@ DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
 
-uint8_t Received[5];
+//uint8_t Received[5];
 
 /* USER CODE END PV */
 
@@ -71,41 +71,56 @@ void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
 
-void mapInto(struct Opcode *ReceivedOpCode) {
-  ReceivedOpCode->B0 = Received[0];
-  ReceivedOpCode->B1 = Received[1];
-  ReceivedOpCode->B2 = Received[2];
-  ReceivedOpCode->B3 = Received[3];
+#define GET_FW_INFO 0x30
+#define GET_FW_VERSION 0x30
+
+Opcode ReceivedOpCode;
+
+void GetFwVersion() {
+  const uint8_t Data[70];
+
+	uint16_t size = sprintf((char *)Data, "----Odebrana wiadomosc2\n\r");
+	HAL_UART_Transmit_IT(&huart2, Data, size);
+
+  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 }
 
-uint8_t checkEqOpCodes(struct Opcode *ReceivedOpCode, const struct Opcode *InstrOpCode) {
-  if (ReceivedOpCode->B0 == InstrOpCode->B0 && ReceivedOpCode->B1 == InstrOpCode->B1 && 
-      ReceivedOpCode->B2 == InstrOpCode->B2 && ReceivedOpCode->B3 == InstrOpCode->B3) {
-        return 1;
-  }
-  return 0;
+void UnknownOpCode() {
+  static uint8_t Data[70];
+
+	uint16_t size = sprintf((char *)Data, "----Odebrana wiadomosc3\n\r");
+	HAL_UART_Transmit_IT(&huart2, Data, size);
 }
 
-void handleInstr(struct Opcode *ReceivedOpCode) {
-  if (checkEqOpCodes(ReceivedOpCode, &GetAdress) == 1) {
-    static uint8_t Data[70];
-    uint16_t size = sprintf(Data, "Adres: %s\n\r", VERSION_ADRESS);
-    HAL_UART_Transmit_IT(&huart2, Data, size);
+void handleInstr(Opcode *ReceivedOpCode) {
+  switch ((*ReceivedOpCode).bytes.major) {
+    case GET_FW_INFO:
+      switch ((*ReceivedOpCode).bytes.minor) {
+        case GET_FW_VERSION:
+          GetFwVersion();
+          break;
+        default:
+          UnknownOpCode();
+          break;
+      }
+      break;
+    default:
+      UnknownOpCode();
+      break;
   }
 }
 
 void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
  
-	static uint8_t Data[70];
+	//static uint8_t Data[70];
 
 	//uint16_t size = sprintf(Data, "----Odebrana wiadomosc: %s\n\r", Received);
 	//HAL_UART_Transmit_IT(&huart2, Data, size);
 
-  struct Opcode ReceivedOpCode;
-  mapInto(&ReceivedOpCode);
+  //mapInto(&ReceivedOpCode);
   handleInstr(&ReceivedOpCode);
 
-	HAL_UART_Receive_DMA(&huart2, Received, 4);
+	HAL_UART_Receive_DMA(&huart2, (uint8_t *)&ReceivedOpCode.dword, 4);
 	
 }
 
@@ -149,10 +164,18 @@ int main(void)
 
   uint8_t buffW2[3] = { 0b00000000, 0b00001111, 0b00000000 };
 
+  uint8_t buffW3[3] = { 0b00000000, 0b00011001, 0b00000000 };
+
   uint8_t buffR[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
 
   // init of listening using dma
-  HAL_UART_Receive_DMA(&huart2, Received, 4);
+  HAL_UART_Receive_DMA(&huart2, (uint8_t *)&ReceivedOpCode.dword, 4);
+
+  int send_data = 0;
+
+  int time = HAL_GetTick();
+
+  int f1 = 0, f2 = 0;
 
   /* USER CODE END 2 */
 
@@ -160,24 +183,46 @@ int main(void)
   /* USER CODE BEGIN WHILE */
   while (1)
   {
-    HAL_Delay(5000);
+    if (HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin) == GPIO_PIN_RESET) {
+        if (send_data) {
+          send_data = 0;
+        } else {
+          send_data = 1;
+          time = HAL_GetTick();
+        }
+    }
 
-    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(&hspi2, buffW, 5, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
+    if (send_data) {
 
-    //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
+      if (time + 1000 <= HAL_GetTick() && !f1) {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
+        HAL_SPI_Transmit(&hspi2, buffW, 5, HAL_MAX_DELAY);
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
+        f1 = 1;
+      }
+      //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
-    HAL_Delay(2000);
+      
+      if (time + 2000 <= HAL_GetTick() && !f2) {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
+        HAL_SPI_Transmit(&hspi2, buffW2, 3, HAL_MAX_DELAY);
+        HAL_SPI_Receive(&hspi2, buffR, 8, HAL_MAX_DELAY);
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
+        f2 = 1;
+      }
 
-    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
-    HAL_SPI_Transmit(&hspi2, buffW2, 3, HAL_MAX_DELAY);
-    HAL_SPI_Receive(&hspi2, buffR, 8, HAL_MAX_DELAY);
-    HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
+      //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
 
-    //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-
-    HAL_Delay(2000);
+      
+      if (time + 3000 <= HAL_GetTick()) {
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
+        HAL_SPI_Transmit(&hspi2, buffW3, 3, HAL_MAX_DELAY);
+        HAL_SPI_Receive(&hspi2, buffR, 8, HAL_MAX_DELAY);
+        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
+        time = HAL_GetTick();
+        f1 = 0; f2 = 0;
+      }
+    }
     /* USER CODE END WHILE */
 
     /* USER CODE BEGIN 3 */
@@ -339,11 +384,11 @@ static void MX_GPIO_Init(void)
   /*Configure GPIO pin Output Level */
   HAL_GPIO_WritePin(GPIOA, LD2_Pin|NSS_Pin, GPIO_PIN_RESET);
 
-  /*Configure GPIO pin : B1_Pin */
-  GPIO_InitStruct.Pin = B1_Pin;
+  /*Configure GPIO pin : USER_BUTTON_Pin */
+  GPIO_InitStruct.Pin = USER_BUTTON_Pin;
   GPIO_InitStruct.Mode = GPIO_MODE_IT_FALLING;
   GPIO_InitStruct.Pull = GPIO_NOPULL;
-  HAL_GPIO_Init(B1_GPIO_Port, &GPIO_InitStruct);
+  HAL_GPIO_Init(USER_BUTTON_GPIO_Port, &GPIO_InitStruct);
 
   /*Configure GPIO pins : LD2_Pin NSS_Pin */
   GPIO_InitStruct.Pin = LD2_Pin|NSS_Pin;
