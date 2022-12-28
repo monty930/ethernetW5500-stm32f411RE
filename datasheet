@@ -1,0 +1,20 @@
+Opcodes:
+
+[00xxxxxx] - get fw info
+
+get fv version
+[0000----]
+
+[10xxxxxx] - set data
+
+set gateway ip 
+[1000abcd]
+
+2. set mask 
+[1010abcd]
+
+set hardware address 1
+[1020abcd]
+
+set hardware address 2
+[1030ab--]

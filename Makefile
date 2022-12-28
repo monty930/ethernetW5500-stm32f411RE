@@ -37,6 +37,9 @@ BUILD_DIR = build
 # C sources
 C_SOURCES =  \
 Core/Src/main.c \
+Core/Src/Commands/command_handler.c \
+Core/Src/Drivers/Wiznet/wiznet_communication.c \
+Core/Src/tmp.c \
 Core/Src/stm32f4xx_it.c \
 Core/Src/stm32f4xx_hal_msp.c \
 Drivers/STM32F4xx_HAL_Driver/Src/stm32f4xx_hal_spi.c \
@@ -113,6 +116,10 @@ AS_INCLUDES =
 
 # C includes
 C_INCLUDES =  \
+-ICore/Src/Drivers/Serial \
+-ICore/Src/Drivers/Wiznet \
+-ICore/Src \
+-ICore/Src/Commands \
 -ICore/Inc \
 -IDrivers/STM32F4xx_HAL_Driver/Inc \
 -IDrivers/STM32F4xx_HAL_Driver/Inc/Legacy \

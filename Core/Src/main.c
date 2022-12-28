@@ -23,9 +23,11 @@
 /* USER CODE BEGIN Includes */
 
 #include <stdio.h>
-#include "spi_w5500_communication.h"
+#include "wiznet_communication.h"
 #include "serial_communication.h"
+#include "command_handler.h"
 #include "consts.h"
+#include "tmp.h"
 
 /* USER CODE END Includes */
 
@@ -45,15 +47,11 @@
 
 /* Private variables ---------------------------------------------------------*/
 SPI_HandleTypeDef hspi2;
-
 UART_HandleTypeDef huart2;
 DMA_HandleTypeDef hdma_usart2_rx;
 DMA_HandleTypeDef hdma_usart2_tx;
 
 /* USER CODE BEGIN PV */
-
-//uint8_t Received[5];
-
 /* USER CODE END PV */
 
 /* Private function prototypes -----------------------------------------------*/
@@ -63,67 +61,10 @@ static void MX_DMA_Init(void);
 static void MX_SPI2_Init(void);
 static void MX_USART2_UART_Init(void);
 /* USER CODE BEGIN PFP */
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart);
-
 /* USER CODE END PFP */
 
 /* Private user code ---------------------------------------------------------*/
 /* USER CODE BEGIN 0 */
-
-#define GET_FW_INFO 0x30
-#define GET_FW_VERSION 0x30
-
-Opcode ReceivedOpCode;
-
-void GetFwVersion() {
-  const uint8_t Data[70];
-
-	uint16_t size = sprintf((char *)Data, "----Odebrana wiadomosc2\n\r");
-	HAL_UART_Transmit_IT(&huart2, Data, size);
-
-  HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-}
-
-void UnknownOpCode() {
-  static uint8_t Data[70];
-
-	uint16_t size = sprintf((char *)Data, "----Odebrana wiadomosc3\n\r");
-	HAL_UART_Transmit_IT(&huart2, Data, size);
-}
-
-void handleInstr(Opcode *ReceivedOpCode) {
-  switch ((*ReceivedOpCode).bytes.major) {
-    case GET_FW_INFO:
-      switch ((*ReceivedOpCode).bytes.minor) {
-        case GET_FW_VERSION:
-          GetFwVersion();
-          break;
-        default:
-          UnknownOpCode();
-          break;
-      }
-      break;
-    default:
-      UnknownOpCode();
-      break;
-  }
-}
-
-void HAL_UART_RxCpltCallback(UART_HandleTypeDef *huart) {
- 
-	//static uint8_t Data[70];
-
-	//uint16_t size = sprintf(Data, "----Odebrana wiadomosc: %s\n\r", Received);
-	//HAL_UART_Transmit_IT(&huart2, Data, size);
-
-  //mapInto(&ReceivedOpCode);
-  handleInstr(&ReceivedOpCode);
-
-	HAL_UART_Receive_DMA(&huart2, (uint8_t *)&ReceivedOpCode.dword, 4);
-	
-}
-
 /* USER CODE END 0 */
 
 /**
@@ -157,26 +98,23 @@ int main(void)
   MX_DMA_Init();
   MX_SPI2_Init();
   MX_USART2_UART_Init();
+
   /* USER CODE BEGIN 2 */
+  uint8_t buffRead[22];
+  uint8_t buffWrite_Gateway[3] = { 0b00000000, 0b00000001, 0b00000000 };
 
-  // used for mosi transmit
-  uint8_t buffW[5] = { 0b00000000, 0b00001111, 0b00000100, 0b11011011, 0b00010010 };
-
-  uint8_t buffW2[3] = { 0b00000000, 0b00001111, 0b00000000 };
-
-  uint8_t buffW3[3] = { 0b00000000, 0b00011001, 0b00000000 };
-
-  uint8_t buffR[8] = { 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00 };
-
-  // init of listening using dma
-  HAL_UART_Receive_DMA(&huart2, (uint8_t *)&ReceivedOpCode.dword, 4);
+  HAL_UART_Receive_DMA(&huart2, (uint8_t *)&ReceivedOpCode.dword, 8);
 
   int send_data = 0;
-
   int time = HAL_GetTick();
+  int time_since_change = HAL_GetTick();
+  
+  //TBD
+  readFromGateway();
 
-  int f1 = 0, f2 = 0;
-
+  // TBD
+  setDataTmp(&huart2, &ReceivedOpCode, &hspi2);
+  send_init_data(&ReceivedOpCode);
   /* USER CODE END 2 */
 
   /* Infinite loop */
@@ -184,43 +122,27 @@ int main(void)
   while (1)
   {
     if (HAL_GPIO_ReadPin(USER_BUTTON_GPIO_Port, USER_BUTTON_Pin) == GPIO_PIN_RESET) {
+      if (time_since_change + 100 <= HAL_GetTick()) {
         if (send_data) {
           send_data = 0;
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_SET);
+          time_since_change = HAL_GetTick();
         } else {
           send_data = 1;
+          HAL_GPIO_WritePin(LD2_GPIO_Port, LD2_Pin, GPIO_PIN_RESET);
           time = HAL_GetTick();
+          time_since_change = HAL_GetTick();
         }
+      }
     }
 
     if (send_data) {
-
-      if (time + 1000 <= HAL_GetTick() && !f1) {
+      if (time + 2000 <= HAL_GetTick()) {
         HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
-        HAL_SPI_Transmit(&hspi2, buffW, 5, HAL_MAX_DELAY);
-        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
-        f1 = 1;
-      }
-      //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-
-      
-      if (time + 2000 <= HAL_GetTick() && !f2) {
-        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
-        HAL_SPI_Transmit(&hspi2, buffW2, 3, HAL_MAX_DELAY);
-        HAL_SPI_Receive(&hspi2, buffR, 8, HAL_MAX_DELAY);
-        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
-        f2 = 1;
-      }
-
-      //HAL_GPIO_TogglePin(LD2_GPIO_Port, LD2_Pin);
-
-      
-      if (time + 3000 <= HAL_GetTick()) {
-        HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_RESET);
-        HAL_SPI_Transmit(&hspi2, buffW3, 3, HAL_MAX_DELAY);
-        HAL_SPI_Receive(&hspi2, buffR, 8, HAL_MAX_DELAY);
+        HAL_SPI_Transmit(&hspi2, buffWrite_Gateway, 3, HAL_MAX_DELAY);
+        HAL_SPI_Receive(&hspi2, buffRead, 22, HAL_MAX_DELAY);
         HAL_GPIO_WritePin(NSS_GPIO_Port, NSS_Pin, GPIO_PIN_SET);
         time = HAL_GetTick();
-        f1 = 0; f2 = 0;
       }
     }
     /* USER CODE END WHILE */
